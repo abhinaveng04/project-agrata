@@ -110,3 +110,30 @@ if st.button("Run Supply Chain Simulation", type="primary"):
     st.divider()
     money_saved = final_batch_cold.get_total_value() - final_batch_std.get_total_value()
     st.success(f"**Total Financial Savings utilizing Cold-Chain infrastructure: ₹{money_saved:,.2f}**")
+    # ==========================================
+    # 5. ENTERPRISE CSV EXPORT
+    # ==========================================
+    st.divider()
+    st.subheader("📥 Export Enterprise Report")
+    st.markdown("Download the raw time-series data for logistical auditing and accounting.")
+    
+    # Create a combined Master DataFrame for the business report
+    df_report = pd.DataFrame({
+        "Transit Hour": df_standard["Hour"],
+        "Open Truck Quality (%)": df_standard["Quality Score (%)"],
+        "Cold-Chain Quality (%)": df_cold["Quality Score (%)"],
+        "Open Truck Value (₹)": df_standard["Value (₹)"],
+        "Cold-Chain Value (₹)": df_cold["Value (₹)"]
+    })
+    
+    # Convert the pandas DataFrame to a CSV format
+    csv_data = df_report.to_csv(index=False).encode('utf-8')
+    
+    # Render the interactive download button
+    st.download_button(
+        label="Download Full Supply Chain Audit (.CSV)",
+        data=csv_data,
+        file_name="agrata_logistics_audit.csv",
+        mime="text/csv",
+        type="secondary"
+    )
