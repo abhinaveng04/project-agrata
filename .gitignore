@@ -1,0 +1,18 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.env
+
+# Logs and Databases
+*.log
+supply_chain_audit.log
+*.sqlite3
+
+# OS generated files
+.DS_Store
+Thumbs.db
