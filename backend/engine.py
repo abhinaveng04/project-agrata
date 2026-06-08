@@ -9,16 +9,15 @@ import json
 class WeatherService:
     """Fetches real-time weather data to feed the simulation."""
     @staticmethod
-    def get_live_temperature(city="Nashik"):
-        # Nashik Coordinates: Lat 20.0, Lon 73.78
-        # Using Open-Meteo (Free, No API Key Required)
-        url = "https://api.open-meteo.com/v1/forecast?latitude=20.0&longitude=73.78&current_weather=true"
+    def get_live_temperature(city, lat, lon):
+        # Dynamically inject the coordinates into the API URL
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
                 live_temp = data['current_weather']['temperature']
-                print(f"[API SUCCESS] Fetched live temperature for {city}: {live_temp}°C")
+                print(f"[API SUCCESS] Fetched live temp for {city}: {live_temp}°C")
                 return live_temp
         except Exception as e:
             print(f"[API ERROR] Falling back to default 35.0°C. Reason: {e}")
@@ -56,6 +55,19 @@ class TomatoDecay(DecayStrategy):
 class PotatoDecay(DecayStrategy):
     def calculate_loss(self, temperature, hours):
         decay_factor = 0.02 if temperature < 25 else 0.08
+        return temperature * hours * decay_factor
+        
+class MangoDecay(DecayStrategy):
+    """Specific decay algorithm for tropical fruits."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.03 if temperature < 22 else 0.10
+        return temperature * hours * decay_factor
+
+class SpinachDecay(DecayStrategy):
+    """Specific decay algorithm for highly perishable leafy greens."""
+    def calculate_loss(self, temperature, hours):
+        # Spinach wilts incredibly fast in heat
+        decay_factor = 0.08 if temperature < 15 else 0.25
         return temperature * hours * decay_factor
 
 # ==========================================
@@ -144,28 +156,21 @@ class Transporter(SupplyChainNode):
         for hour in range(travel_hours):
             batch.degrade(actual_temp, 1)
 
-
 # ==========================================
 # 5. LOCAL TESTING SCRIPT
 # ==========================================
 if __name__ == "__main__":
-    # 1. Fetch live weather data for the simulation
-    live_temp = WeatherService.get_live_temperature("Nashik")
+    # 1. Fetch live weather data (passing the coordinates!)
+    live_temp = WeatherService.get_live_temperature("Nashik", 20.0, 73.78)
     
     nashik_farm = Farm("Nashik Organic Farm", "Maharashtra", 1000)
-    
-    # 2. Harvest crop and ATTACH the Quality Monitor (Observer Pattern)
     tomato_batch = nashik_farm.harvest_crop("Tomatoes", TomatoDecay())
     monitor = QualityMonitor()
     tomato_batch.attach(monitor)
     
     print("-" * 50)
-    
-    # 3. Dispatch and Transport using Live Weather
     first_out = nashik_farm.dispatch_oldest_batch() 
     truck = Transporter("Standard Logistics", 350, is_refrigerated=False)
-    
-    # Notice the alarms firing as it transports in the terminal!
     truck.transport_batch(first_out, ambient_temperature=live_temp)
     
     print("-" * 50)

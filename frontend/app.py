@@ -7,7 +7,17 @@ import math
 
 # Ensure Python can find the backend folder
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from backend.engine import Farm, Transporter, TomatoDecay, PotatoDecay, WeatherService, Observer
+from backend.engine import Farm, Transporter, TomatoDecay, PotatoDecay, MangoDecay, SpinachDecay, WeatherService, Observer
+
+# --- HAVERSINE FORMULA (GPS DISTANCE CALCULATION) ---
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Calculates the straight-line distance between two coordinates in km."""
+    R = 6371  # Earth radius in kilometers
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
 # ==========================================
 # 1. UI OBSERVER PATTERN
@@ -29,30 +39,58 @@ st.set_page_config(page_title="Agrata Logistics", layout="wide")
 st.title("Agrata: Enterprise Logistics & Market Predictor")
 st.markdown("A deterministic OOP engine with Live API weather, Geospatial Mapping, and ML-ready Predictive Analytics.")
 
-st.sidebar.header("Logistics Parameters")
-crop_choice = st.sidebar.selectbox("Select Crop Type", ["Tomatoes", "Potatoes"])
-distance_km = st.sidebar.slider("Transit Distance (km)", 50, 1000, 170)
+# --- CITY COORDINATES DATABASE ---
+CITIES = {
+    "Nashik": {"lat": 20.00, "lon": 73.78},
+    "Mumbai": {"lat": 19.07, "lon": 72.87},
+    "Pune": {"lat": 18.52, "lon": 73.85},
+    "Nagpur": {"lat": 21.14, "lon": 79.08},
+    "Delhi": {"lat": 28.61, "lon": 77.20},
+    "Bangalore": {"lat": 12.97, "lon": 77.59}
+}
 
-# --- NEW FEATURE 3: DYNAMIC MARKET PRICING ---
+st.sidebar.header("Logistics Parameters")
+crop_choice = st.sidebar.selectbox("Select Crop Type", ["Tomatoes", "Potatoes", "Mangoes", "Spinach"])
+
+# Dynamic UI for routing
+st.sidebar.subheader("Transit Route")
+origin_city = st.sidebar.selectbox("Origin City", list(CITIES.keys()), index=0)
+dest_city = st.sidebar.selectbox("Destination Market", list(CITIES.keys()), index=1)
+
+# Auto-calculate distance
+exact_distance = calculate_distance(
+    CITIES[origin_city]["lat"], CITIES[origin_city]["lon"],
+    CITIES[dest_city]["lat"], CITIES[dest_city]["lon"]
+)
+# Add a 20% multiplier to account for road curvature vs straight-line distance
+distance_km = int(exact_distance * 1.2)
+st.sidebar.info(f"📍 GPS Calculated Route: **{distance_km} km**")
+
+# --- ECONOMIC PARAMETERS ---
 st.sidebar.divider()
 st.sidebar.header("Economic Parameters")
 market_demand = st.sidebar.select_slider("Current Market Demand", options=["Low", "Normal", "High"], value="Normal")
-
-# Set the price multiplier based on demand
 price_multiplier = {"Low": 0.8, "Normal": 1.0, "High": 1.5}[market_demand]
 
-# --- LIVE API TOGGLE ---
+# --- DYNAMIC LIVE API TOGGLE ---
 st.sidebar.divider()
-use_live_weather = st.sidebar.checkbox("📡 Use Live Weather API (Nashik)", value=True)
+use_live_weather = st.sidebar.checkbox(f"📡 Use Live Weather ({origin_city})", value=True)
 
 if use_live_weather:
-    with st.spinner("Fetching live satellite weather..."):
-        ambient_temp = WeatherService.get_live_temperature("Nashik")
-    st.sidebar.success(f"Live API Temperature: {ambient_temp}°C")
+    with st.spinner(f"Fetching satellite weather for {origin_city}..."):
+        # Pass dynamic coordinates to the backend
+        ambient_temp = WeatherService.get_live_temperature(
+            origin_city, CITIES[origin_city]["lat"], CITIES[origin_city]["lon"]
+        )
+    st.sidebar.success(f"Live API Temp ({origin_city}): {ambient_temp}°C")
 else:
     ambient_temp = st.sidebar.slider("Manual Ambient Temperature (°C)", 10.0, 45.0, 35.0)
 
-strategy = TomatoDecay() if crop_choice == "Tomatoes" else PotatoDecay()
+# Map UI selection to the expanded Backend Strategy Pattern
+if crop_choice == "Tomatoes": strategy = TomatoDecay()
+elif crop_choice == "Potatoes": strategy = PotatoDecay()
+elif crop_choice == "Mangoes": strategy = MangoDecay()
+elif crop_choice == "Spinach": strategy = SpinachDecay()
 
 # ==========================================
 # 3. SIMULATION EXECUTION FUNCTION
@@ -71,7 +109,6 @@ def run_simulation(is_refrigerated):
     history = []
     
     for hour in range(travel_hours + 1):
-        # Apply the market demand multiplier to the dynamic value
         current_market_value = batch.get_total_value() * price_multiplier
         history.append({
             "Hour": hour,
@@ -83,40 +120,40 @@ def run_simulation(is_refrigerated):
     return pd.DataFrame(history), batch, ui_monitor.alerts, actual_temp
 
 # ==========================================
-# 4. A/B SCENARIO DASHBOARD (OUTPUTS)
+# 4. A/B SCENARIO DASHBOARD & 2D MAP
 # ==========================================
-# --- NEW FEATURE 2: GEOSPATIAL MAPPING (WITH 3D ROUTE) ---
-with st.expander("🗺️ View Active Transit Route (Geospatial Map)", expanded=False):
-    # Data defining the start (Nashik) and end (Mumbai) points
+with st.expander(f"🗺️ View Active Transit Route ({origin_city} to {dest_city})", expanded=False):
+    
     route_data = pd.DataFrame({
-        "origin_lon": [73.78],
-        "origin_lat": [20.00],
-        "dest_lon": [72.87],
-        "dest_lat": [19.07]
+        "origin_lon": [CITIES[origin_city]["lon"]],
+        "origin_lat": [CITIES[origin_city]["lat"]],
+        "dest_lon": [CITIES[dest_city]["lon"]],
+        "dest_lat": [CITIES[dest_city]["lat"]]
     })
 
-    # Create a 3D Arc Layer connecting the two cities
-    arc_layer = pdk.Layer(
-        "ArcLayer",
+    # Use a solid LineLayer instead of a 3D arc for a cleaner navigation look
+    line_layer = pdk.Layer(
+        "LineLayer",
         data=route_data,
         get_source_position=["origin_lon", "origin_lat"],
         get_target_position=["dest_lon", "dest_lat"],
-        get_source_color=[255, 75, 75, 200],  # Red at Origin
-        get_target_color=[0, 204, 150, 200],  # Green at Destination
-        get_width=5,
-        tilt=15
+        get_color=[0, 153, 255, 255],  # Google Maps Navigation Blue
+        get_width_min_pixels=5,
     )
 
-    # Set the camera angle to look at the route with a cool 3D tilt
+    mid_lat = (CITIES[origin_city]["lat"] + CITIES[dest_city]["lat"]) / 2
+    mid_lon = (CITIES[origin_city]["lon"] + CITIES[dest_city]["lon"]) / 2
+
+    # Pitch = 0 makes the map completely flat (2D top-down view)
     view_state = pdk.ViewState(
-        latitude=19.53,
-        longitude=73.32,
-        zoom=7.5,
-        pitch=45  # Tilts the map for a 3D effect
+        latitude=mid_lat,
+        longitude=mid_lon,
+        zoom=5.5,
+        pitch=0 
     )
 
-    # Render the interactive map
-    st.pydeck_chart(pdk.Deck(layers=[arc_layer], initial_view_state=view_state, map_style="road"))
+    st.pydeck_chart(pdk.Deck(layers=[line_layer], initial_view_state=view_state, map_style="road"))
+
 
 if st.button("Run Supply Chain Simulation", type="primary"):
     
@@ -148,19 +185,15 @@ if st.button("Run Supply Chain Simulation", type="primary"):
         for alert in cold_alerts:
             st.error(alert)
 
-    # --- NEW FEATURE 1: PREDICTIVE SHELF-LIFE ANALYTICS ---
+    # --- PREDICTIVE SHELF-LIFE ANALYTICS ---
     st.divider()
     st.subheader("🔮 ML-Ready Predictive Analytics")
     
     if final_batch_cold.quality_score > 30:
-        # Calculate hourly degradation rate based on the strategy formula
         hourly_drop = strategy.calculate_loss(actual_temp_cold, 1)
-        # Quality points remaining before hitting 30% (spoilage)
         points_remaining = final_batch_cold.quality_score - 30.0
-        # Predict hours left
         hours_left = math.floor(points_remaining / hourly_drop) if hourly_drop > 0 else 999
-        
-        st.info(f"**Shelf-Life Prediction:** Based on current thermodynamic decay rates, the Cold-Chain cargo has approximately **{hours_left} hours** of viable market life remaining before total spoilage.")
+        st.info(f"**Shelf-Life Prediction:** Based on current thermodynamic decay rates, the Cold-Chain cargo has approximately **{hours_left} hours** of viable market life remaining.")
     else:
         st.error("**Shelf-Life Prediction:** The cargo has already spoiled and has 0 hours of market viability remaining.")
 
@@ -168,14 +201,12 @@ if st.button("Run Supply Chain Simulation", type="primary"):
     st.divider()
     money_saved = final_val_cold - final_val_std
     st.success(f"**Total Financial Savings utilizing Cold-Chain infrastructure: ₹{money_saved:,.2f}**")
-    # ==========================================
-    # 5. ENTERPRISE CSV EXPORT
-    # ==========================================
+    
+    # --- ENTERPRISE CSV EXPORT ---
     st.divider()
     st.subheader("📥 Export Enterprise Report")
     st.markdown("Download the raw time-series data for logistical auditing and accounting.")
     
-    # Create a combined Master DataFrame for the business report
     df_report = pd.DataFrame({
         "Transit Hour": df_standard["Hour"],
         "Open Truck Quality (%)": df_standard["Quality Score (%)"],
@@ -184,14 +215,5 @@ if st.button("Run Supply Chain Simulation", type="primary"):
         "Cold-Chain Adjusted Value (₹)": df_cold["Value (₹)"]
     })
     
-    # Convert the pandas DataFrame to a CSV format
     csv_data = df_report.to_csv(index=False).encode('utf-8')
-    
-    # Render the interactive download button
-    st.download_button(
-        label="Download Full Supply Chain Audit (.CSV)",
-        data=csv_data,
-        file_name="agrata_logistics_audit.csv",
-        mime="text/csv",
-        type="secondary"
-    )
+    st.download_button(label="Download Full Supply Chain Audit (.CSV)", data=csv_data, file_name="agrata_logistics_audit.csv", mime="text/csv", type="secondary")
