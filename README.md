@@ -30,7 +30,7 @@ This project is built with a strictly decoupled architecture (Backend OOP Engine
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/yourusername/project-agrata.git](https://github.com/yourusername/project-agrata.git)
+   git clone [https://github.com/abhinaveng04/project-agrata.git](https://github.com/abhinaveng04/project-agrata.git)
    cd project-agrata
 
 2. **Install Dependencies:**
@@ -42,6 +42,7 @@ This project is built with a strictly decoupled architecture (Backend OOP Engine
    streamlit run frontend/app.py
 
 📈 Future Roadmap (Version 2.0)
+
 •**Predictive ML Integration:** Swap out current mathematical heuristics for a trained machine learning model to predict shelf-life and market demand dynamically.
 
 •**IoT Sensor Hooks:** Replace Open-Meteo API data with live payload feeds from in-transit BLE/LoRa refrigeration sensors.
