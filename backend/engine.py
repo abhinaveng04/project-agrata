@@ -23,6 +23,42 @@ class WeatherService:
             print(f"[API ERROR] Falling back to default 35.0°C. Reason: {e}")
             return 35.0
 
+class MandiService:
+    @staticmethod
+    def get_live_mandi_price(crop_type):
+        # FIX: Safely remove plurals without mutilating base words
+        if crop_type.endswith("oes"):
+            crop_query = crop_type[:-2]  # Tomatoes -> Tomato
+        elif crop_type.endswith("s") and not crop_type.endswith("ss"):
+            crop_query = crop_type[:-1]  # Apples -> Apple
+        else:
+            crop_query = crop_type       # Spinach -> Spinach
+        
+        url = f"https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070?format=json&filters[commodity]={crop_query}"
+        
+        # Enterprise-grade wholesale price index fallbacks (₹/kg) if government gateway rate-limits are active
+        market_defaults = {
+            "Tomatoes": 32.0, "Potatoes": 22.0, "Mangoes": 85.0, "Spinach": 25.0,
+            "Capsicum": 50.0, "Litchi": 120.0, "Orange": 60.0, "Rice": 44.0,
+            "Wheat": 28.0, "Banana": 35.0, "Apple": 115.0, "Onion": 26.0
+        }
+        
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=3) as response:
+                data = json.loads(response.read().decode())
+                if "records" in data and len(data["records"]) > 0:
+                    # Government indexes represent prices per Quintal (100 kg). Convert to Kilograms.
+                    modal_price_quintal = float(data["records"][0]["modal_price"])
+                    live_price_kg = modal_price_quintal / 100.0
+                    if live_price_kg > 0:
+                        print(f"[MANDI API SUCCESS] Live wholesale rate for {crop_type}: ₹{live_price_kg}/kg")
+                        return live_price_kg
+        except Exception as e:
+            print(f"[MANDI FALLBACK] Gateway latency. Utilizing local baseline index. Info: {e}")
+            
+        return market_defaults.get(crop_type, 40.0)
+
 # ==========================================
 # 2. THE OBSERVER PATTERN (EVENT-DRIVEN ARCHITECTURE)
 # ==========================================
@@ -60,7 +96,7 @@ class PotatoDecay(DecayStrategy):
 class MangoDecay(DecayStrategy):
     """Specific decay algorithm for tropical fruits."""
     def calculate_loss(self, temperature, hours):
-        decay_factor = 0.03 if temperature < 22 else 0.10
+        decay_factor = 0.03 if temperature < 20 else 0.12
         return temperature * hours * decay_factor
 
 class SpinachDecay(DecayStrategy):
@@ -69,6 +105,55 @@ class SpinachDecay(DecayStrategy):
         # Spinach wilts incredibly fast in heat
         decay_factor = 0.08 if temperature < 15 else 0.25
         return temperature * hours * decay_factor
+
+class RiceDecay(DecayStrategy):
+    """Specific decay algorithm for Rice."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.01 if temperature < 25 else 0.05
+        return temperature * hours * decay_factor
+
+class WheatDecay(DecayStrategy):
+    """Specific decay algorithm for Wheat."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.01 if temperature < 25 else 0.05
+        return temperature * hours * decay_factor
+
+class BananaDecay(DecayStrategy):
+    """Specific decay algorithm for Banana."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.07 if temperature < 22 else 0.15
+        return temperature * hours * decay_factor
+
+class AppleDecay(DecayStrategy):
+    """Specific decay algorithm for Apple."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.01 if temperature < 18 else 0.05
+        return temperature * hours * decay_factor
+
+class OnionDecay(DecayStrategy):
+    """Specific decay algorithm for Onion."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.01 if temperature < 25 else 0.04
+        return temperature * hours * decay_factor
+        
+class CapsicumDecay(DecayStrategy):
+    """Specific decay algorithm for Capsicum."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.04 if temperature < 18 else 0.12
+        return temperature * hours * decay_factor
+
+class LitchiDecay(DecayStrategy):
+    """Specific decay algorithm for Litchi."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.06 if temperature < 15 else 0.20
+        return temperature * hours * decay_factor
+        
+class OrangeDecay(DecayStrategy):
+    """Specific decay algorithm for Orange."""
+    def calculate_loss(self, temperature, hours):
+        decay_factor = 0.02 if temperature < 20 else 0.06
+        return temperature * hours * decay_factor
+
 
 # ==========================================
 # 4. CORE BUSINESS LOGIC (SUBJECTS & QUEUES)
@@ -79,9 +164,8 @@ class PerishableBatch:
         self.quantity = quantity
         self.decay_strategy = decay_strategy
         self.quality_score = initial_quality
-        self.current_value_per_kg = 40.0
-        
-        # Observer Pattern setup
+        self.base_value_per_kg = 40.0  # Store the baseline mathematically
+        self.current_value_per_kg = self.base_value_per_kg
         self._observers = []
 
     def attach(self, observer: Observer):
@@ -99,9 +183,9 @@ class PerishableBatch:
         if self.quality_score < 30:
             self.current_value_per_kg = 0.0 
         else:
-            self.current_value_per_kg *= (self.quality_score / 100.0)
+            # FIX: Calculate against the base value, not the current value
+            self.current_value_per_kg = self.base_value_per_kg * (self.quality_score / 100.0)
             
-        # Broadcast state change to all observers
         self.notify()
 
     def get_total_value(self):
