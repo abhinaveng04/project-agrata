@@ -2,11 +2,15 @@ import sqlite3
 import uuid
 import pandas as pd
 
+import os
+
 class EnterpriseDB:
     def __init__(self, db_name="agrata_v2.sqlite3"):
-        self.db_name = db_name
-        # FIX: Keep one persistent connection open
-        self._conn = sqlite3.connect(db_name, check_same_thread=False)
+        # Anchor the database file to the parent directory of this script
+        DB_PATH = os.path.join(os.path.dirname(__file__), '..', db_name)
+        self.db_name = os.path.abspath(DB_PATH)
+        
+        self._conn = sqlite3.connect(self.db_name, check_same_thread=False)
         self._create_tables()
 
     def _get_connection(self):

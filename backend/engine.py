@@ -15,6 +15,7 @@ class WeatherService:
         # Dynamically inject the coordinates into the API URL
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
         try:
+            assert url.startswith("https://"), "Only HTTPS allowed"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
@@ -52,6 +53,7 @@ class MandiService:
         }
         
         try:
+            assert url.startswith("https://"), "Only HTTPS allowed"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=3) as response:
                 data = json.loads(response.read().decode())
@@ -250,6 +252,8 @@ class Transporter(SupplyChainNode):
         # Step through time hour-by-hour so the Observer can watch the decay live
         for hour in range(travel_hours):
             batch.degrade(actual_temp, 1)
+            if batch.quality_score <= 0.0:
+                break
 
 # ==========================================
 # 5. LOCAL TESTING SCRIPT

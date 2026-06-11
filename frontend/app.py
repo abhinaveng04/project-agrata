@@ -11,6 +11,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from backend.engine import Farm, Transporter, TomatoDecay, PotatoDecay, MangoDecay, SpinachDecay, CapsicumDecay, LitchiDecay, OrangeDecay, RiceDecay, WheatDecay, BananaDecay, AppleDecay, OnionDecay, WeatherService, MandiService, Observer, BASE_VALUE_PER_KG
 from backend.database import db
 
+# --- API CACHING LAYER ---
+@st.cache_data(ttl=300)
+def get_cached_mandi_price(crop_name):
+    return MandiService.get_live_mandi_price(crop_name)
+
+@st.cache_data(ttl=300)
+def get_cached_weather(city, lat, lon):
+    return WeatherService.get_live_temperature(city, lat, lon)
+
 # --- HAVERSINE FORMULA (GPS DISTANCE CALCULATION) ---
 def calculate_distance(lat1, lon1, lat2, lon2):
     """Calculates the straight-line distance between two coordinates in km."""
@@ -32,7 +41,7 @@ class StreamlitMonitor(Observer):
         if 0.0 < batch.quality_score < 60.0:
              self.alerts.add(f"🚨 {batch.crop_type} quality dropped to {batch.quality_score:.1f}%!")
              
-        elif batch.quality_score == 0.0:
+        elif batch.quality_score < 1.0:
              self.alerts.add(f"💀 {batch.crop_type} has completely spoiled. Write-off required.")
 
 # ==========================================
@@ -40,14 +49,15 @@ class StreamlitMonitor(Observer):
 # ==========================================
 st.set_page_config(page_title="Agrata Logistics", layout="wide")
 
-# Securely fetch secrets from environment variables
-password = os.environ.get("AGRATA_PASSWORD", "agrata") # Defaulting to 'agrata' for your local testing
-secret_key = os.environ.get("AGRATA_COOKIE_SECRET", "agrata_enterprise_secure_signature_key_2026")
+password = os.environ.get("AGRATA_PASSWORD")
+secret_key = os.environ.get("AGRATA_COOKIE_SECRET")
 
-# Securely hash the password
+if not password or not secret_key:
+    st.error("SECURITY HALT: Environment credentials not set.")
+    st.stop()
+
 hashed_passwords = stauth.Hasher.hash_list([password])
 
-# Define the credential dictionary
 credentials = {
     "usernames": {
         "admin": {
@@ -275,7 +285,7 @@ price_multiplier = {"Low": 0.8, "Normal": 1.0, "High": 1.5}[market_demand]
 
 # --- Automated live pricing retrieval ---
 with st.spinner(f"Querying National Mandi index for {crop_choice}..."):
-    base_mandi_price = MandiService.get_live_mandi_price(crop_choice)
+    base_mandi_price = MandiService.get_cached_mandi_price(crop_choice)
 
 st.sidebar.success(f"Market Valuation Price: **₹{base_mandi_price:.2f}/kg**")
 
@@ -286,7 +296,7 @@ use_live_weather = st.sidebar.checkbox(f"📡 Use Live Weather ({origin_city})",
 if use_live_weather:
     with st.spinner(f"Fetching satellite weather for {origin_city}..."):
         # Pass dynamic coordinates to the backend
-        ambient_temp = WeatherService.get_live_temperature(
+        ambient_temp = WeatherService.get_cached_weather(
             origin_city, CITIES[origin_city]["lat"], CITIES[origin_city]["lon"]
         )
     st.sidebar.success(f"Live API Temp ({origin_city}): {ambient_temp}°C")
@@ -605,19 +615,15 @@ with st.container():
     with wi_col2:
         st.markdown("#### 📊 Live Projection")
         
-        # --- 1. Map Inputs to Engine Variables ---
+    # --- 1. Map Inputs to Engine Variables ---
         wi_dist = int(calculate_distance(CITIES[wi_origin]["lat"], CITIES[wi_origin]["lon"], CITIES[wi_dest]["lat"], CITIES[wi_dest]["lon"]) * 1.2)
-        
-        # Map the dropdown selection to your backend OOP Strategy classes
         wi_strategy = STRATEGY_MAP[wi_crop]()
         wi_is_ref = "Cold-Chain" in wi_vehicle
-        
-        # Translate time-of-day into exact thermodynamic variables
         wi_ambient = {"Midnight (18°C)": 18.0, "Morning (24°C)": 24.0, "High Noon (38°C)": 38.0}[wi_time]
         wi_actual_temp = 4.0 if wi_is_ref else wi_ambient
-        wi_travel_hours = int(wi_dist / 50) # Assumes standard 50km/h trucking speed
+        wi_travel_hours = math.ceil(wi_dist / 50) 
         
-        # --- 2. Run Isolated Simulation (Does not hit SQLite) ---
+        # --- 2. Run Isolated Simulation ---
         wi_farm = Farm("Sandbox Farm", wi_origin, 1000)
         wi_batch = wi_farm.harvest_crop(wi_crop, wi_strategy)
         
@@ -625,15 +631,11 @@ with st.container():
             wi_batch.degrade(wi_actual_temp, 1)
             
         # --- 3. Fast Financial Math ---
-        # Using standard fallback prices to keep the sandbox blazing fast on slider drag
         wi_base_prices = {"Tomatoes": 32.0, "Mangoes": 85.0, "Spinach": 25.0, "Litchi": 120.0, "Wheat": 28.0, "Apple": 115.0}
-        wi_price = wi_base_prices[wi_crop]
-        
+        wi_price = wi_base_prices.get(wi_crop, 40.0)
         wi_potential_rev = 1000 * wi_price
-        # Normalize the engine's default 40.0 baseline to the actual commodity price
         wi_actual_rev = (wi_batch.get_total_value() / 40.0) * wi_price
         wi_spoilage_loss = wi_potential_rev - wi_actual_rev
-        
         wi_fuel_cost = wi_dist * (28.0 if wi_is_ref else 18.0)
         wi_net_profit = wi_actual_rev - wi_fuel_cost
         wi_margin = (wi_net_profit / wi_potential_rev) * 100 if wi_potential_rev > 0 else 0.0
