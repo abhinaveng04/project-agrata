@@ -8,7 +8,7 @@ import streamlit_authenticator as stauth
 
 # Ensure Python can find the backend folder
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from backend.engine import Farm, Transporter, TomatoDecay, PotatoDecay, MangoDecay, SpinachDecay, CapsicumDecay, LitchiDecay, OrangeDecay, RiceDecay, WheatDecay, BananaDecay, AppleDecay, OnionDecay, WeatherService, MandiService, Observer
+from backend.engine import Farm, Transporter, TomatoDecay, PotatoDecay, MangoDecay, SpinachDecay, CapsicumDecay, LitchiDecay, OrangeDecay, RiceDecay, WheatDecay, BananaDecay, AppleDecay, OnionDecay, WeatherService, MandiService, Observer, BASE_VALUE_PER_KG
 from backend.database import db
 
 # --- HAVERSINE FORMULA (GPS DISTANCE CALCULATION) ---
@@ -25,28 +25,29 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 # 1. UI OBSERVER PATTERN
 # ==========================================
 class StreamlitMonitor(Observer):
-    """Watches inventory and fires alerts if quality drops below critical levels."""
     def __init__(self):
-        self.alerts = set() # Give the monitor memory
-
+        self.alerts = set() # Use a set to prevent duplicates
+        
     def update(self, batch):
-        if 0.0 < batch.quality_score < 60.0 and "critical" not in self.alerts:
-            print(f"  [CRITICAL ALERT] 🚨 {batch.crop_type} quality dropped to {batch.quality_score:.1f}%!")
-            self.alerts.add("critical")
-            
-        elif batch.quality_score == 0.0 and "fatal" not in self.alerts:
-            print(f"  [FATAL ALERT] 💀 {batch.crop_type} has completely spoiled. Write-off required.")
-            self.alerts.add("fatal")
+        if 0.0 < batch.quality_score < 60.0:
+             self.alerts.add(f"🚨 {batch.crop_type} quality dropped to {batch.quality_score:.1f}%!")
+             
+        elif batch.quality_score == 0.0:
+             self.alerts.add(f"💀 {batch.crop_type} has completely spoiled. Write-off required.")
 
 # ==========================================
 # 2. UI SETUP & ENTERPRISE AUTHENTICATION
 # ==========================================
 st.set_page_config(page_title="Agrata Logistics", layout="wide")
 
-# Securely hash the password "agrata"
-hashed_passwords = stauth.Hasher.hash_list(['agrata'])
+# Securely fetch secrets from environment variables
+password = os.environ.get("AGRATA_PASSWORD", "agrata") # Defaulting to 'agrata' for your local testing
+secret_key = os.environ.get("AGRATA_COOKIE_SECRET", "agrata_enterprise_secure_signature_key_2026")
 
-# Define the credential dictionary 
+# Securely hash the password
+hashed_passwords = stauth.Hasher.hash_list([password])
+
+# Define the credential dictionary
 credentials = {
     "usernames": {
         "admin": {
@@ -61,7 +62,7 @@ credentials = {
 authenticator = stauth.Authenticate(
     credentials,
     "agrata_auth_cookie",
-    "agrata_enterprise_secure_signature_key_2026",
+    secret_key,
     cookie_expiry_days=1
 )
 
@@ -102,7 +103,7 @@ try:
         avg_spoilage = 100.0 - df_kpi["final_quality"].mean()
         
         # 3. Estimated Financial Loss (Potential Max Value vs Actual Value)
-        valid_runs = df_kpi[df_kpi["final_quality"] > 0]
+        valid_runs = df_kpi[df_kpi["final_quality"] >= 1.0]
         potential_value = (valid_runs["market_value"] / (valid_runs["final_quality"] / 100.0)).sum()
         actual_value = valid_runs["market_value"].sum()
         est_loss = potential_value - actual_value
@@ -128,7 +129,7 @@ try:
         
         # Calculate the exact loss for every single row in the database
         def calculate_row_loss(row):
-            if row["final_quality"] > 0:
+            if row["final_quality"] >=1.0:
                 potential = row["market_value"] / (row["final_quality"] / 100.0)
                 return potential - row["market_value"]
             return 25000.0  # Standard write-off penalty for 0% quality
@@ -246,7 +247,11 @@ CITIES = {
 }
 
 st.sidebar.header("Logistics Parameters")
-crop_choice = st.sidebar.selectbox("Select Crop Type", ["Tomatoes", "Potatoes", "Mangoes", "Spinach","Capsicum","Litchi","Orange","Rice","Wheat","Banana","Apple","Onion","Potatoes"])
+
+CROPS = ["Tomatoes", "Potatoes", "Mangoes", "Spinach", 
+         "Capsicum", "Litchi", "Orange", "Rice", 
+         "Wheat", "Banana", "Apple", "Onion"]
+crop_choice = st.sidebar.selectbox("Select Crop Type", CROPS)
 
 # Dynamic UI for routing
 st.sidebar.subheader("Transit Route")
@@ -288,19 +293,17 @@ if use_live_weather:
 else:
     ambient_temp = st.sidebar.slider("Manual Ambient Temperature (°C)", 10.0, 45.0, 35.0)
 
-# Map UI selection to the expanded Backend Strategy Pattern
-if crop_choice == "Tomatoes": strategy = TomatoDecay()
-elif crop_choice == "Potatoes": strategy = PotatoDecay()
-elif crop_choice == "Mangoes": strategy = MangoDecay()
-elif crop_choice == "Spinach": strategy = SpinachDecay()
-elif crop_choice == "Capsicum": strategy = CapsicumDecay()
-elif crop_choice == "Litchi": strategy = LitchiDecay()
-elif crop_choice == "Orange": strategy = OrangeDecay()
-elif crop_choice == "Rice": strategy = RiceDecay()
-elif crop_choice == "Wheat": strategy = WheatDecay()
-elif crop_choice == "Banana": strategy = BananaDecay()
-elif crop_choice == "Apple": strategy = AppleDecay()
-elif crop_choice == "Onion": strategy = OnionDecay()
+# Map UI selection to the expanded Backend Strategy Pattern safely
+STRATEGY_MAP = {
+    "Tomatoes": TomatoDecay, "Potatoes": PotatoDecay,
+    "Mangoes": MangoDecay,  "Spinach":  SpinachDecay,
+    "Capsicum": CapsicumDecay, "Litchi": LitchiDecay,
+    "Orange": OrangeDecay, "Rice": RiceDecay,
+    "Wheat": WheatDecay, "Banana": BananaDecay,
+    "Apple": AppleDecay, "Onion": OnionDecay
+}
+
+strategy = STRATEGY_MAP.get(crop_choice, TomatoDecay)()
 
 # ==========================================
 # 3.1 SIMULATION EXECUTION FUNCTION
@@ -313,19 +316,25 @@ def run_simulation(is_refrigerated):
     ui_monitor = StreamlitMonitor()
     batch.attach(ui_monitor)
     
-    travel_hours = int(distance_km / truck.speed_kmh)
+    # FIX: Mirror the backend ceiling logic
+    travel_hours = math.ceil(distance_km / truck.speed_kmh)
     actual_temp = 4.0 if is_refrigerated else ambient_temp
     
     history = []
-    
-    for hour in range(travel_hours + 1):
-        current_market_value = batch.get_total_value() * price_multiplier
+
+    history.append({
+        "Hour": 0,
+        "Quality Score (%)": batch.quality_score,
+        "Value (₹)": batch.get_total_value() * price_multiplier
+    })
+
+    for hour in range(1, travel_hours + 1):
+        batch.degrade(actual_temp, 1)
         history.append({
             "Hour": hour,
             "Quality Score (%)": batch.quality_score,
-            "Value (₹)": current_market_value
+            "Value (₹)": batch.get_total_value() * price_multiplier
         })
-        batch.degrade(actual_temp, 1)
         
     return pd.DataFrame(history), batch, ui_monitor.alerts, actual_temp
 
@@ -375,7 +384,7 @@ def display_route_pnl(final_batch, distance, is_refrigerated, price_mult, live_m
     potential_revenue = initial_kg * base_price
     
     # Normalize the backend value logic to match the live telemetry stream
-    actual_revenue = (final_batch.get_total_value() * price_mult / 40.0) * live_mandi_rate
+    actual_revenue = (final_batch.get_total_value() * price_mult / BASE_VALUE_PER_KG) * live_mandi_rate
     spoilage_loss = potential_revenue - actual_revenue
     
     fuel_rate_per_km = 28.0 if is_refrigerated else 18.0
@@ -407,7 +416,11 @@ if st.button("Run Supply Chain Simulation", type="primary"):
         st.subheader("Scenario A: Open Truck")
         df_standard, final_batch_std, std_alerts, actual_temp_std = run_simulation(is_refrigerated=False)
         
-        st.pydeck_chart(generate_dynamic_map(final_batch_std.quality_score))
+        if origin_city == dest_city:
+            st.info("Origin and destination are the same city — no transit route to display.")
+        else:
+            st.pydeck_chart(generate_dynamic_map(final_batch_std.quality_score))
+
         st.line_chart(df_standard.set_index("Hour")["Quality Score (%)"], color="#ff4b4b")
         
         # Inject the new P&L Statement
@@ -421,7 +434,11 @@ if st.button("Run Supply Chain Simulation", type="primary"):
         st.subheader("Scenario B: Cold-Chain")
         df_cold, final_batch_cold, cold_alerts, actual_temp_cold = run_simulation(is_refrigerated=True)
         
-        st.pydeck_chart(generate_dynamic_map(final_batch_cold.quality_score))
+        if origin_city == dest_city:
+            st.info("Origin and destination are the same city — no transit route to display.")
+        else:
+            st.pydeck_chart(generate_dynamic_map(final_batch_cold.quality_score))
+            
         st.line_chart(df_cold.set_index("Hour")["Quality Score (%)"], color="#00cc96")
         
         # Inject the new P&L Statement
@@ -453,8 +470,8 @@ if st.button("Run Supply Chain Simulation", type="primary"):
     # ---------------------------------------------
     # NEW: WRITE SECURE LOGS TO SQLITE
     # ---------------------------------------------
-    final_val_std = (final_batch_std.get_total_value() * price_multiplier / 40.0) * base_mandi_price
-    final_val_cold = (final_batch_cold.get_total_value() * price_multiplier / 40.0) * base_mandi_price
+    final_val_std = (final_batch_std.get_total_value() * price_multiplier / BASE_VALUE_PER_KG) * base_mandi_price
+    final_val_cold = (final_batch_cold.get_total_value() * price_multiplier / BASE_VALUE_PER_KG) * base_mandi_price
     
     db.log_run(origin_city, dest_city, crop_choice, "Open Truck", distance_km, final_batch_std.quality_score, final_val_std)
     db.log_run(origin_city, dest_city, crop_choice, "Cold-Chain", distance_km, final_batch_cold.quality_score, final_val_cold)
@@ -469,7 +486,9 @@ if st.button("Run Supply Chain Simulation", type="primary"):
     # Interactive slider for the Mandi (Market) Price
     custom_mandi_price = st.slider(
         "Simulate Mandi Price (₹/kg) for 100% Quality", 
-        min_value=10.0, max_value=200.0, value=40.0, step=2.0
+        min_value=10.0, max_value=200.0, 
+        value=float(base_mandi_price), # FIX: Pre-fill with actual live price
+        step=2.0
     )
 
     # Generate the theoretical curve
@@ -546,10 +565,7 @@ try:
         
         # Add a purge tool for clean demo resets
         if st.button("Purge Database Logs", type="secondary"):
-            import sqlite3
-            conn = sqlite3.connect("agrata_v2.sqlite3")
-            conn.cursor().execute("DELETE FROM supply_chain_runs")
-            conn.commit()
+            db.purge()
             st.rerun()
     else:
         st.info("The database is currently empty. Run a simulation to generate persistent logs.")
@@ -575,9 +591,10 @@ with st.container():
         wi_origin = wi_r1.selectbox("Origin", list(CITIES.keys()), index=1, key="wi_ori")
         wi_dest = wi_r2.selectbox("Destination", list(CITIES.keys()), index=4, key="wi_dest")
         
-        wi_crop = st.selectbox("Commodity", ["Tomatoes", "Mangoes", "Spinach", "Litchi", "Wheat", "Apple"], index=3, key="wi_crop")
+        # Use the global map instead of the sandbox-only map
+        wi_crop = st.selectbox("Commodity", list(STRATEGY_MAP.keys()), index=3, key="wi_crop")
         wi_vehicle = st.radio("Transport Fleet", ["Standard Open Truck", "Cold-Chain Reefer"], horizontal=True, key="wi_veh")
-        
+
         # Time of day directly impacts ambient thermal baseline
         wi_time = st.select_slider(
             "Departure Time (Thermal Impact)", 
@@ -592,11 +609,7 @@ with st.container():
         wi_dist = int(calculate_distance(CITIES[wi_origin]["lat"], CITIES[wi_origin]["lon"], CITIES[wi_dest]["lat"], CITIES[wi_dest]["lon"]) * 1.2)
         
         # Map the dropdown selection to your backend OOP Strategy classes
-        wi_strategy_map = {
-            "Tomatoes": TomatoDecay(), "Mangoes": MangoDecay(), "Spinach": SpinachDecay(),
-            "Litchi": LitchiDecay(), "Wheat": WheatDecay(), "Apple": AppleDecay()
-        }
-        wi_strategy = wi_strategy_map[wi_crop]
+        wi_strategy = STRATEGY_MAP[wi_crop]()
         wi_is_ref = "Cold-Chain" in wi_vehicle
         
         # Translate time-of-day into exact thermodynamic variables

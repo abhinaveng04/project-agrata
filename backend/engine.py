@@ -2,6 +2,8 @@ from collections import deque
 from abc import ABC, abstractmethod
 import urllib.request
 import json
+import os
+import math
 
 # ==========================================
 # 1. LIVE API INTEGRATION (EXTERNAL DATA)
@@ -34,7 +36,13 @@ class MandiService:
         else:
             crop_query = crop_type       # Spinach -> Spinach
         
-        url = f"https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070?format=json&filters[commodity]={crop_query}"
+        # FIX: Use environment variable for API key
+        API_KEY = os.environ.get("DATA_GOV_IN_KEY", "")
+        url = (
+            f"https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
+            f"?api-key={API_KEY}&format=json"
+            f"&filters[commodity]={crop_query}"
+        )
         
         # Enterprise-grade wholesale price index fallbacks (₹/kg) if government gateway rate-limits are active
         market_defaults = {
@@ -106,17 +114,15 @@ class SpinachDecay(DecayStrategy):
         decay_factor = 0.08 if temperature < 15 else 0.25
         return temperature * hours * decay_factor
 
-class RiceDecay(DecayStrategy):
-    """Specific decay algorithm for Rice."""
+class GrainDecay(DecayStrategy):
+    """Base decay for dry grains."""
     def calculate_loss(self, temperature, hours):
         decay_factor = 0.01 if temperature < 25 else 0.05
         return temperature * hours * decay_factor
 
-class WheatDecay(DecayStrategy):
-    """Specific decay algorithm for Wheat."""
-    def calculate_loss(self, temperature, hours):
-        decay_factor = 0.01 if temperature < 25 else 0.05
-        return temperature * hours * decay_factor
+class RiceDecay(GrainDecay): pass
+
+class WheatDecay(GrainDecay): pass
 
 class BananaDecay(DecayStrategy):
     """Specific decay algorithm for Banana."""
@@ -158,13 +164,14 @@ class OrangeDecay(DecayStrategy):
 # ==========================================
 # 4. CORE BUSINESS LOGIC (SUBJECTS & QUEUES)
 # ==========================================
+BASE_VALUE_PER_KG = 40.0
 class PerishableBatch:
     def __init__(self, crop_type, quantity, decay_strategy: DecayStrategy, initial_quality=100.0):
         self.crop_type = crop_type
         self.quantity = quantity
         self.decay_strategy = decay_strategy
         self.quality_score = initial_quality
-        self.base_value_per_kg = 40.0  # Store the baseline mathematically
+        self.base_value_per_kg = BASE_VALUE_PER_KG # Store the baseline mathematically
         self.current_value_per_kg = self.base_value_per_kg
         self._observers = []
 
@@ -181,9 +188,12 @@ class PerishableBatch:
         self.quality_score = max(0.0, min(100.0, self.quality_score))
         
         if self.quality_score < 30:
-            self.current_value_per_kg = 0.0 
+            self.current_value_per_kg = 0.0
+        elif self.quality_score < 70:
+            # Gradual discount for mid-tier quality
+            discount = (self.quality_score - 30) / 40
+            self.current_value_per_kg = self.base_value_per_kg * discount * 0.6
         else:
-            # FIX: Calculate against the base value, not the current value
             self.current_value_per_kg = self.base_value_per_kg * (self.quality_score / 100.0)
             
         self.notify()
@@ -230,7 +240,8 @@ class Transporter(SupplyChainNode):
         self.speed_kmh = 50
 
     def transport_batch(self, batch, ambient_temperature):
-        travel_hours = int(self.route_distance / self.speed_kmh)
+        # FIX: Use math.ceil to round up and capture all transit time
+        travel_hours = math.ceil(self.route_distance / self.speed_kmh)
         actual_temp = 4.0 if self.is_refrigerated else ambient_temperature
         
         transport_type = "Cold-Chain" if self.is_refrigerated else "Open Truck"

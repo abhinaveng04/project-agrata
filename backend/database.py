@@ -5,10 +5,12 @@ import pandas as pd
 class EnterpriseDB:
     def __init__(self, db_name="agrata_v2.sqlite3"):
         self.db_name = db_name
+        # FIX: Keep one persistent connection open
+        self._conn = sqlite3.connect(db_name, check_same_thread=False)
         self._create_tables()
 
     def _get_connection(self):
-        return sqlite3.connect(self.db_name)
+        return self._conn
 
     def _create_tables(self):
         with self._get_connection() as conn:
@@ -44,6 +46,11 @@ class EnterpriseDB:
         """Returns a Pandas DataFrame of all historical runs for Streamlit."""
         with self._get_connection() as conn:
             return pd.read_sql_query("SELECT * FROM supply_chain_runs ORDER BY timestamp DESC", conn)
+    
+    def purge(self):
+        with self._get_connection() as conn:
+            conn.cursor().execute("DELETE FROM supply_chain_runs")
+            conn.commit()
 
 # Initialize a singleton instance for the app to use
 db = EnterpriseDB()
