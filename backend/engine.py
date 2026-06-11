@@ -82,7 +82,7 @@ class QualityMonitor(Observer):
     def update(self, batch):
         if batch.quality_score < 60.0 and batch.quality_score > 0.0:
             print(f"  [CRITICAL ALERT] 🚨 {batch.crop_type} quality dropped to {batch.quality_score:.1f}%!")
-        elif batch.quality_score == 0.0:
+        elif batch.quality_score < 1.0:
             print(f"  [FATAL ALERT] 💀 {batch.crop_type} has completely spoiled. Write-off required.")
 
 # ==========================================

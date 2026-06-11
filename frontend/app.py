@@ -35,14 +35,22 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 # ==========================================
 class StreamlitMonitor(Observer):
     def __init__(self):
-        self.alerts = set() # Use a set to prevent duplicates
+        # FIX: Use a list instead of a set to preserve chronological order
+        self.alerts = [] 
         
     def update(self, batch):
+        alert_msg = None
+        
         if 0.0 < batch.quality_score < 60.0:
-             self.alerts.add(f"🚨 {batch.crop_type} quality dropped to {batch.quality_score:.1f}%!")
+             # FIX: Use a static string so we can easily deduplicate it
+             alert_msg = f"🚨 {batch.crop_type} quality has dropped below the 60% critical threshold!"
              
         elif batch.quality_score < 1.0:
-             self.alerts.add(f"💀 {batch.crop_type} has completely spoiled. Write-off required.")
+             alert_msg = f"💀 {batch.crop_type} has completely spoiled. Write-off required."
+             
+        # Only append the alert if it isn't already in the list
+        if alert_msg and alert_msg not in self.alerts:
+             self.alerts.append(alert_msg)
 
 # ==========================================
 # 2. UI SETUP & ENTERPRISE AUTHENTICATION
