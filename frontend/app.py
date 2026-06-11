@@ -285,7 +285,7 @@ price_multiplier = {"Low": 0.8, "Normal": 1.0, "High": 1.5}[market_demand]
 
 # --- Automated live pricing retrieval ---
 with st.spinner(f"Querying National Mandi index for {crop_choice}..."):
-    base_mandi_price = MandiService.get_cached_mandi_price(crop_choice)
+    base_mandi_price =get_cached_mandi_price(crop_choice)
 
 st.sidebar.success(f"Market Valuation Price: **₹{base_mandi_price:.2f}/kg**")
 
@@ -296,7 +296,7 @@ use_live_weather = st.sidebar.checkbox(f"📡 Use Live Weather ({origin_city})",
 if use_live_weather:
     with st.spinner(f"Fetching satellite weather for {origin_city}..."):
         # Pass dynamic coordinates to the backend
-        ambient_temp = WeatherService.get_cached_weather(
+        ambient_temp =get_cached_weather(
             origin_city, CITIES[origin_city]["lat"], CITIES[origin_city]["lon"]
         )
     st.sidebar.success(f"Live API Temp ({origin_city}): {ambient_temp}°C")
