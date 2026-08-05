@@ -4,7 +4,7 @@
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.33-FF4B4B?style=for-the-badge&logo=streamlit)
 ![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=for-the-badge&logo=sqlite)
 ![Architecture](https://img.shields.io/badge/Architecture-Event--Driven-8A2BE2?style=for-the-badge)
-
+https://agrata.streamlit.app/
 **Agrata** is a deterministic, Object-Oriented Decision Support System (DSS) designed to model thermodynamic decay, geospatial routing, and financial forecasting in agricultural supply chains. 
 
 Built as a core engineering initiative at the Noida Institute of Engineering and Technology (NIET), this project bypasses standard static models by integrating live API telemetry, strict data structure enforcement, and gang-of-four design patterns to actively optimize logistics networks and calculate infrastructure ROI.
